@@ -3045,6 +3045,20 @@
                 <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">هاتف ولي الأمر</label>
                 <input type="text" id="edit-std-parent" placeholder="01xxxxxxxxx" class="form-input">
             </div>
+            <div class="form-group">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">
+                    كود الطالب
+                    <label style="font-weight:400; font-size:0.85rem; margin-right:0.75rem; cursor:pointer;">
+                        <input type="checkbox" id="edit-std-code-manual-toggle" onchange="toggleEditCodeManual()" style="margin-left:4px;">
+                        تعديل الكود يدوياً
+                    </label>
+                </label>
+                <div id="edit-std-code-display" style="font-family:monospace; background:var(--bg-light); padding:0.5rem 0.75rem; border-radius:6px; color:var(--text-muted); font-size:0.9rem;"></div>
+                <div id="edit-std-code-manual-field" style="display:none; margin-top:0.5rem;">
+                    <input type="text" id="edit-std-code-input" placeholder="أدخل الكود الجديد (أرقام فقط، 4 على الأقل)" class="form-input" oninput="validateEditCode()" style="font-family:monospace; letter-spacing:0.05em;">
+                    <div id="edit-std-code-msg" style="font-size:0.8rem; margin-top:0.3rem; min-height:1.2em;"></div>
+                </div>
+            </div>
             <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
                 <button class="btn btn-primary" style="flex: 2; background: var(--accent);"
                     onclick="handleStudentUpdate()">تحديث البيانات</button>

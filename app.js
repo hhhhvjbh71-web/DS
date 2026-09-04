@@ -13603,11 +13603,61 @@ async function editStudent(id) {
     document.getElementById('edit-std-phone').value = student.phone;
     document.getElementById('edit-std-parent').value = student.parentPhone;
 
+    // ── عرض الكود الحالي وإعادة ضبط حقل التعديل ──
+    const codeDisplay = document.getElementById('edit-std-code-display');
+    if (codeDisplay) codeDisplay.textContent = student.qrCode || '(لا يوجد كود)';
+    const codeToggle = document.getElementById('edit-std-code-manual-toggle');
+    if (codeToggle) { codeToggle.checked = false; }
+    const manualField = document.getElementById('edit-std-code-manual-field');
+    if (manualField) manualField.style.display = 'none';
+    const codeInput = document.getElementById('edit-std-code-input');
+    if (codeInput) codeInput.value = '';
+    const codeMsg = document.getElementById('edit-std-code-msg');
+    if (codeMsg) codeMsg.innerHTML = '';
+
     const groupSelect = document.getElementById('edit-std-group');
     const filteredGroups = db.groups.filter(g => g.grade == currentGrade);
     groupSelect.innerHTML = filteredGroups.map(g => `<option value="${g.id}" ${g.id == student.groupId ? 'selected' : ''}>${g.name} (${g.time})</option>`).join('');
 
     toggleModal('edit-student-modal', true);
+}
+
+function toggleEditCodeManual() {
+    const toggle = document.getElementById('edit-std-code-manual-toggle');
+    const manualField = document.getElementById('edit-std-code-manual-field');
+    const codeInput = document.getElementById('edit-std-code-input');
+    const codeMsg = document.getElementById('edit-std-code-msg');
+    if (!toggle || !manualField) return;
+    if (toggle.checked) {
+        manualField.style.display = 'block';
+    } else {
+        manualField.style.display = 'none';
+        if (codeInput) codeInput.value = '';
+        if (codeMsg) codeMsg.innerHTML = '';
+    }
+}
+
+function validateEditCode() {
+    const codeInput = document.getElementById('edit-std-code-input');
+    const codeMsg = document.getElementById('edit-std-code-msg');
+    const studentId = document.getElementById('edit-std-id').value;
+    if (!codeInput || !codeMsg) return;
+    const val = codeInput.value.trim();
+    if (!val) { codeMsg.innerHTML = ''; return; }
+    if (!/^\d+$/.test(val)) {
+        codeMsg.innerHTML = '<span style="color:#ef4444"><i class="fas fa-times-circle"></i> الكود يجب أن يحتوي أرقاماً فقط</span>';
+        return;
+    }
+    if (val.length < 4) {
+        codeMsg.innerHTML = '<span style="color:#f59e0b"><i class="fas fa-exclamation-circle"></i> الكود قصير جداً (4 أرقام على الأقل)</span>';
+        return;
+    }
+    const conflict = db.students.find(s => String(s.qrCode) === val && String(s.id) !== String(studentId));
+    if (conflict) {
+        codeMsg.innerHTML = '<span style="color:#ef4444"><i class="fas fa-times-circle"></i> الكود مستخدم بالفعل للطالب: ' + conflict.name + '</span>';
+        return;
+    }
+    codeMsg.innerHTML = '<span style="color:#10b981"><i class="fas fa-check-circle"></i> الكود متاح ✓</span>';
 }
 
 async function handleStudentUpdate() {
@@ -13619,6 +13669,22 @@ async function handleStudentUpdate() {
 
     if (!name || !phone || !groupId || !parent) return showNotification('يرجى ملء كافة البيانات', 'error');
 
+    // ── التحقق من الكود اليدوي إذا كان مفعّلاً ──
+    const codeToggle = document.getElementById('edit-std-code-manual-toggle');
+    let newCode = null;
+    if (codeToggle && codeToggle.checked) {
+        const codeInput = document.getElementById('edit-std-code-input');
+        const val = codeInput ? codeInput.value.trim() : '';
+        if (!val || !/^\d+$/.test(val) || val.length < 4) {
+            return showNotification('يرجى إدخال كود صحيح (أرقام فقط، 4 أرقام على الأقل)', 'error');
+        }
+        const conflict = db.students.find(s => String(s.qrCode) === val && String(s.id) !== String(id));
+        if (conflict) {
+            return showNotification('الكود ' + val + ' مستخدم بالفعل للطالب: ' + conflict.name, 'error');
+        }
+        newCode = val;
+    }
+
     const student = await StorageEngine.get('students', id);
     if (!student) return showNotification('خطأ في استرجاع البيانات', 'error');
 
@@ -13626,13 +13692,18 @@ async function handleStudentUpdate() {
     student.phone = phone;
     student.groupId = groupId;
     student.parentPhone = parent;
+    if (newCode !== null) student.qrCode = newCode;
 
     await StorageEngine.save('students', student);
 
     const idx = db.students.findIndex(s => s.id == id);
     if (idx !== -1) db.students[idx] = student;
 
-    showNotification('تم تحديث بيانات الطالب بنجاح');
+    // تحديث عرض الكود في الـ modal لو احتاج
+    const codeDisplay = document.getElementById('edit-std-code-display');
+    if (codeDisplay) codeDisplay.textContent = student.qrCode || '(لا يوجد كود)';
+
+    showNotification(newCode ? 'تم تحديث بيانات الطالب والكود بنجاح' : 'تم تحديث بيانات الطالب بنجاح');
     toggleModal('edit-student-modal', false);
     renderStudents();
 }
