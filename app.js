@@ -296,8 +296,23 @@ const StorageEngine = {
     db: null,
     async init() {
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open("EduMasterLargeDB", 6);
-            request.onerror = (e) => reject("IndexedDB error: " + e.target.errorCode);
+            // ── رفع رقم الإصدار لـ 7 لضمان تشغيل onupgradeneeded وإنشاء الجداول الجديدة ──
+            const request = indexedDB.open("EduMasterLargeDB", 7);
+
+            // ✅ إصلاح: e.target.errorCode غير موجودة في المتصفحات الحديثة — الصح هو e.target.error
+            request.onerror = (e) => {
+                const err = e.target.error;
+                const msg = err ? (err.message || err.name || String(err)) : 'خطأ غير معروف';
+                console.error('[StorageEngine] IndexedDB open error:', msg, err);
+                reject("IndexedDB error: " + msg);
+            };
+
+            // ✅ إضافة: onblocked يحدث لما تبويب تانية فاتحة نسخة قديمة من البرنامج
+            request.onblocked = () => {
+                console.warn('[StorageEngine] IndexedDB blocked — another tab is open with an older version');
+                reject("IndexedDB blocked: أغلق كل تبويبات البرنامج الأخرى ثم أعد تحميل الصفحة.");
+            };
+
             request.onupgradeneeded = (e) => {
                 const db = e.target.result;
                 if (!db.objectStoreNames.contains("students")) {
@@ -307,13 +322,31 @@ const StorageEngine = {
                     store.createIndex("groupId", "groupId", { unique: false });
                     store.createIndex("name", "name", { unique: false });
                 }
-                const tables = ['attendance', 'exams', 'scores', 'expenses', 'handouts', 'studentHandouts', 'materials', 'quizzes', 'rewards', 'payments', 'waQueue', 'groups', 'cycles', 'absenceSessions', 'dailyTreasuryArchives', 'staff', 'shifts', 'courseCodes', 'platformCourses', 'platformSubscriptions', 'secretaries'];
+                // ✅ إضافة: جداول المدرسين (teachers, teacherSessions, teacherLogs, teacherPayouts)
+                // كانت موجودة في DEVICE_SYNC_FULL_TABLES لكن مش بتتعمل في IndexedDB — سبب خطأ الرفع
+                const tables = [
+                    'attendance', 'exams', 'scores', 'expenses', 'handouts', 'studentHandouts',
+                    'materials', 'quizzes', 'rewards', 'payments', 'waQueue', 'groups', 'cycles',
+                    'absenceSessions', 'dailyTreasuryArchives', 'staff', 'shifts', 'courseCodes',
+                    'platformCourses', 'platformSubscriptions', 'secretaries',
+                    'teachers', 'teacherSessions', 'teacherLogs', 'teacherPayouts'
+                ];
                 tables.forEach(t => {
                     if (!db.objectStoreNames.contains(t)) db.createObjectStore(t, { keyPath: "id" });
                 });
             };
+
             request.onsuccess = (e) => {
                 this.db = e.target.result;
+
+                // ✅ إضافة: لو قاعدة البيانات اتفتحت بنسخة أقدم من المتوقع (مثلاً blocked ثم تجاوز)
+                // سجّل تحذير بدل ما يصمت
+                this.db.onversionchange = () => {
+                    console.warn('[StorageEngine] DB version changed in another tab — closing this connection.');
+                    this.db.close();
+                    this.db = null;
+                };
+
                 resolve();
             };
         });
@@ -675,21 +708,42 @@ let appBootPromise = null;
 
 function showStartupError(err) {
     console.error('Application startup failed', err);
+    const errStr = String(err || '');
+
+    // ✅ إصلاح: رسائل خطأ واضحة حسب نوع المشكلة بدل رسالة واحدة عامة
+    let userMsg = '';
+    if (errStr.includes('blocked')) {
+        userMsg = '⛔ قاعدة البيانات محجوبة — أغلق جميع تبويبات البرنامج الأخرى، ثم أعد تحميل هذه الصفحة.';
+    } else if (errStr.includes('QuotaExceeded') || errStr.includes('quota')) {
+        userMsg = '💾 مساحة التخزين ممتلئة — احذف بعض البيانات من المتصفح ثم أعد المحاولة.';
+    } else if (errStr.includes('SecurityError') || errStr.includes('security')) {
+        userMsg = '🔒 المتصفح يمنع التخزين المحلي — تأكد أنك لست في وضع التصفح الخاص (Incognito)، وأن التخزين مسموح به في الإعدادات.';
+    } else {
+        userMsg = '⚠️ تعذر تشغيل قاعدة البيانات — أعد تحميل الصفحة، أو افتح البرنامج في متصفح Chrome أو Edge.';
+    }
+
     const errorBox = document.getElementById('password-error');
     if (errorBox) {
         errorBox.style.display = 'block';
-        errorBox.innerHTML = '<i class="fas fa-exclamation-triangle"></i> تعذر تشغيل قاعدة البيانات. أعد تحميل الصفحة أو افتح البرنامج من المتصفح مرة أخرى.';
+        errorBox.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${userMsg}`;
     }
     if (typeof showNotification === 'function') {
-        showNotification('تعذر تحميل بيانات البرنامج. برجاء إعادة فتح الصفحة.', 'error');
+        showNotification(userMsg, 'error');
     }
 }
 
 function ensureAppLoaded() {
     if (!appBootPromise) {
-        appBootPromise = db.load().catch(err => {
-            showStartupError(err);
-            throw err;
+        // ✅ إصلاح: إعادة المحاولة تلقائياً مرة واحدة بعد ثانية قبل إظهار الخطأ
+        // (يعالج حالة تهيئة IndexedDB البطيئة عند أول تحميل للصفحة)
+        appBootPromise = db.load().catch(async (err) => {
+            console.warn('[Boot] First DB load attempt failed, retrying in 1s...', err);
+            await new Promise(r => setTimeout(r, 1000));
+            return db.load().catch(err2 => {
+                showStartupError(err2);
+                appBootPromise = null; // ✅ السماح بمحاولة يدوية لاحقاً
+                throw err2;
+            });
         });
     }
     return appBootPromise;
@@ -11881,7 +11935,11 @@ async function uploadPaymentsToCloud() {
         renderDeviceSyncStatus();
     } catch (err) {
         console.error('[DeviceSync] uploadFullData:', err);
-        showNotification('❌ خطأ أثناء رفع كل البيانات: ' + err.message, 'error');
+        // ✅ إصلاح: err.message تيجي undefined لو err مش Error object (مثلاً string أو Firebase rejection)
+        const errMsg = (err instanceof Error)
+            ? err.message
+            : (typeof err === 'string' ? err : (err && err.code ? `Firebase: ${err.code}` : JSON.stringify(err) || 'خطأ غير معروف'));
+        showNotification('❌ خطأ أثناء رفع كل البيانات: ' + errMsg, 'error');
     } finally {
         _dsSetReady('btn-upload-payments');
     }
@@ -12139,7 +12197,11 @@ async function downloadPaymentsFromCloud() {
         if (typeof generateAbsenceReport === 'function') generateAbsenceReport();
     } catch (err) {
         console.error('[DeviceSync] downloadFullData:', err);
-        showNotification('❌ خطأ أثناء استلام كل البيانات: ' + err.message, 'error');
+        // ✅ إصلاح: err.message تيجي undefined لو err مش Error object
+        const errMsg = (err instanceof Error)
+            ? err.message
+            : (typeof err === 'string' ? err : (err && err.code ? `Firebase: ${err.code}` : JSON.stringify(err) || 'خطأ غير معروف'));
+        showNotification('❌ خطأ أثناء استلام كل البيانات: ' + errMsg, 'error');
     } finally {
         _dsSetReady('btn-download-payments');
     }
