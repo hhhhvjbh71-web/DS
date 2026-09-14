@@ -296,8 +296,8 @@ const StorageEngine = {
     db: null,
     async init() {
         return new Promise((resolve, reject) => {
-            // ── رفع رقم الإصدار لـ 7 لضمان تشغيل onupgradeneeded وإنشاء الجداول الجديدة ──
-            const request = indexedDB.open("EduMasterLargeDB", 7);
+            // ── رفع رقم الإصدار لـ 8 لإضافة جدول studentTransfers (سجل نقل الطلاب) ──
+            const request = indexedDB.open("EduMasterLargeDB", 8);
 
             // ✅ إصلاح: e.target.errorCode غير موجودة في المتصفحات الحديثة — الصح هو e.target.error
             request.onerror = (e) => {
@@ -329,7 +329,8 @@ const StorageEngine = {
                     'materials', 'quizzes', 'rewards', 'payments', 'waQueue', 'groups', 'cycles',
                     'absenceSessions', 'dailyTreasuryArchives', 'staff', 'shifts', 'courseCodes',
                     'platformCourses', 'platformSubscriptions', 'secretaries',
-                    'teachers', 'teacherSessions', 'teacherLogs', 'teacherPayouts'
+                    'teachers', 'teacherSessions', 'teacherLogs', 'teacherPayouts',
+                    'studentTransfers'  // ✅ v8: سجل عمليات نقل الطلاب بين المجموعات
                 ];
                 tables.forEach(t => {
                     if (!db.objectStoreNames.contains(t)) db.createObjectStore(t, { keyPath: "id" });
@@ -664,6 +665,8 @@ const db = {
         this.staff = await StorageEngine.getAll('staff');
         this.shifts = await StorageEngine.getAll('shifts');
         this.secretaries = await StorageEngine.getAll('secretaries');
+        // ✅ v8: تحميل سجل عمليات نقل الطلاب
+        this.studentTransfers = await StorageEngine.getAll('studentTransfers').catch(() => []);
         // ── تخزين نسخة احتياطية في localStorage لعمل تسجيل الدخول فوراً وبدون إنترنت ──
         try { localStorage.setItem('_fallback_secretaries', JSON.stringify(this.secretaries)); } catch (e) { }
 
@@ -688,7 +691,7 @@ const db = {
             await StorageEngine.save(modifiedTable, this[modifiedTable]);
         } else {
             // Default: Save all tables including massive students table 
-            const tables = ['students', 'attendance', 'exams', 'scores', 'expenses', 'handouts', 'studentHandouts', 'materials', 'quizzes', 'rewards', 'payments', 'waQueue', 'groups', 'cycles', 'absenceSessions', 'dailyTreasuryArchives', 'staff', 'shifts', 'courseCodes', 'platformCourses', 'platformSubscriptions', 'secretaries'];
+            const tables = ['students', 'attendance', 'exams', 'scores', 'expenses', 'handouts', 'studentHandouts', 'materials', 'quizzes', 'rewards', 'payments', 'waQueue', 'groups', 'cycles', 'absenceSessions', 'dailyTreasuryArchives', 'staff', 'shifts', 'courseCodes', 'platformCourses', 'platformSubscriptions', 'secretaries', 'studentTransfers'];
             for (const table of tables) {
                 await StorageEngine.save(table, this[table]);
             }

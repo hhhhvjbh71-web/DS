@@ -1,25 +1,19 @@
 // ============================================================
-//  transfer-student.js  v2.0
+//  transfer-student.js  v3.0  — إصلاح شامل لمنطق النقل
 //  نقل الطالب بين المجموعات — متكامل مع app.js / IndexedDB
 //
-//  يُضاف بعد platform-subscriptions.js في index.html
-//  ويُضاف في APP_SHELL داخل sw.js
-//
-//  نقاط التكامل:
-//    ✅ زر "نقل" جنب كل طالب في إدارة الطلاب (renderStudents)
-//    ✅ زر نقل في تفاصيل المجموعة (renderGroupStudents)
-//    ✅ Modal ديناميكي باختيار المجموعة الجديدة
-//    ✅ يُحدّث students + attendance في IndexedDB
-//    ✅ يضيف ملاحظة نقل في dailyTreasuryArchives
-//    ✅ payments / scores / platformSubscriptions تبقى بدون تعديل
-//    ✅ الكود (qrCode) ثابت 100% — لا يتغير أبداً
-//    ✅ يُسجّل في RBAC activity log
-//    ✅ يُحدّث كل الـ UI فوراً بعد النقل
+//  التغييرات في v3.0:
+//    ✅ student.groupId يُحدَّث للمجموعة الجديدة (المجموعة الحالية)
+//    ✅ student.transferHistory يحفظ تاريخ كل عمليات النقل
+//    ✅ سجلات الحضور القديمة تبقى مرتبطة بالمجموعة القديمة (لا تُعدَّل)
+//    ✅ يُسجَّل كل نقل في جدول studentTransfers المستقل
+//    ✅ جميع التحقق يعتمد على student.groupId الحالي فقط
+//    ✅ دعم سلسلة نقل: A → B → C مع حفظ كامل التاريخ
 // ============================================================
 
 /**
  * الدالة الرئيسية — تنقل الطالب من مجموعته الحالية للمجموعة الجديدة
- * وتُحدّث جميع البيانات المرتبطة به.
+ * مع الحفاظ على جميع السجلات التاريخية بدون تعديل.
  *
  * @param {number|string} studentId   - id الطالب في IndexedDB
  * @param {number|string} newGroupId  - id المجموعة الجديدة
@@ -63,9 +57,6 @@ async function transferStudent(studentId, newGroupId, options = {}) {
         const attCount     = db.attendance.filter(a => String(a.studentId) === String(studentId)).length;
         const payCount     = db.payments.filter(p => String(p.studentId) === String(studentId)).length;
         const scoreCount   = db.scores.filter(sc => String(sc.studentId) === String(studentId)).length;
-        const archiveCount = (db.dailyTreasuryArchives || []).filter(a =>
-            (a.payments || []).some(p => p.studentName === student.name)
-        ).length;
 
         const confirmed = window.confirm(
             `نقل الطالب:\n` +
@@ -76,11 +67,10 @@ async function transferStudent(studentId, newGroupId, options = {}) {
             `من مجموعة:  ${oldGroupName}\n` +
             `إلى مجموعة: ${newGroupName}\n` +
             `\n` +
-            `البيانات التي ستنتقل معه:\n` +
-            `  • ${attCount}  سجل حضور\n` +
-            `  • ${payCount}  سجل مالي  (تبقى بدون تعديل)\n` +
+            `البيانات المحفوظة (لن تُمسَّ):\n` +
+            `  • ${attCount}  سجل حضور  (يبقى في المجموعة القديمة)\n` +
+            `  • ${payCount}  سجل مالي  (يبقى بدون تعديل)\n` +
             `  • ${scoreCount} درجة امتحان (تبقى بدون تعديل)\n` +
-            `  • ${archiveCount} إدخال في أرشيف العهدة\n` +
             `\n` +
             `هل تريد المتابعة؟`
         );
@@ -89,39 +79,66 @@ async function transferStudent(studentId, newGroupId, options = {}) {
 
     try {
         const transferDate = new Date().toISOString();
-        const transferNote = `[نُقل: ${oldGroupName} ← ${newGroupName} | ${new Date().toLocaleDateString('ar-EG')}]`;
+        const transferDateStr = new Date().toLocaleDateString('ar-EG');
+        const transferNote = `[نُقل: ${oldGroupName} → ${newGroupName} | ${transferDateStr}]`;
 
-        // ── 3. تحديث بيانات الطالب ──────────────────────────────
-        // الكود (qrCode) لا يُمسّ أبداً
-        student.groupId         = String(newGroupId);
-        student.previousGroupId = oldGroupId;
+        // ── 3. بناء سجل النقل الجديد ────────────────────────────
+        const transferRecord = {
+            id: Date.now(),
+            studentId: String(studentId),
+            studentName: student.name,
+            studentQrCode: student.qrCode,
+            fromGroupId: oldGroupId,
+            fromGroupName: oldGroupName,
+            toGroupId: String(newGroupId),
+            toGroupName: newGroupName,
+            transferDate: transferDate,
+            transferDateStr: transferDateStr,
+            performedBy: (typeof RBAC !== 'undefined' && RBAC.currentUser) ? RBAC.currentUser : 'النظام'
+        };
+
+        // ── 4. تحديث بيانات الطالب ──────────────────────────────
+        // ✅ groupId يُحدَّث للمجموعة الجديدة (المجموعة الحالية الفعلية)
+        // ✅ transferHistory يحفظ كامل تاريخ التنقلات
+        // ✅ الكود (qrCode) لا يُمسّ أبداً
+
+        const previousHistory = student.transferHistory || [];
+        previousHistory.push({
+            fromGroupId: oldGroupId,
+            fromGroupName: oldGroupName,
+            toGroupId: String(newGroupId),
+            toGroupName: newGroupName,
+            transferDate: transferDate
+        });
+
+        student.groupId         = String(newGroupId);   // ← المجموعة الحالية
+        student.previousGroupId = oldGroupId;           // ← آخر مجموعة سابقة (للتوافق)
         student.transferDate    = transferDate;
         student.transferNote    = transferNote;
+        student.transferHistory = previousHistory;      // ← كامل تاريخ التنقلات
 
         await StorageEngine.save('students', student);
         const sIdx = db.students.findIndex(s => String(s.id) === String(studentId));
         if (sIdx !== -1) db.students[sIdx] = { ...student };
 
-        // ── 4. تحديث سجلات الحضور ───────────────────────────────
-        // attendance.groupId يُحدَّث للمجموعة الجديدة
-        // حتى تظهر سجلاته في تقارير المجموعة الجديدة بشكل صحيح
-        const attendanceToUpdate = db.attendance.filter(
-            a => String(a.studentId) === String(studentId)
-        );
-
-        if (attendanceToUpdate.length > 0) {
-            attendanceToUpdate.forEach(a => {
-                a.prevGroupId = a.prevGroupId || oldGroupId;
-                a.groupId     = String(newGroupId);
-            });
-            await StorageEngine.save('attendance', attendanceToUpdate);
-            attendanceToUpdate.forEach(updated => {
-                const idx = db.attendance.findIndex(a => a.id === updated.id);
-                if (idx !== -1) db.attendance[idx] = { ...updated };
-            });
+        // ── 5. حفظ سجل النقل في جدول studentTransfers ──────────
+        // ✅ سجل مستقل يحفظ كل عمليات النقل بتفاصيلها
+        if (!db.studentTransfers) db.studentTransfers = [];
+        db.studentTransfers.push(transferRecord);
+        try {
+            await StorageEngine.save('studentTransfers', transferRecord);
+        } catch (e) {
+            // الجدول ربما لم يُنشأ بعد (قبل رفع إصدار DB) — نحفظ في ذاكرة فقط
+            console.warn('[transferStudent] studentTransfers store not found, saved in memory only:', e.message);
         }
 
-        // ── 5. ملاحظة في أرشيف العهدة ───────────────────────────
+        // ── 6. سجلات الحضور — لا تُعدَّل ────────────────────────
+        // ✅ الحضور القديم يبقى مرتبطاً بـ groupId المجموعة القديمة
+        // ✅ هذا يضمن أن التحقق (student.groupId vs currentGroupId) يعمل بشكل صحيح
+        // ✅ بعد النقل: student.groupId = المجموعة الجديدة، فالتحقق ينجح
+        // (لا يوجد تعديل على attendance هنا — هذا هو الإصلاح الجوهري)
+
+        // ── 7. ملاحظة في أرشيف العهدة ───────────────────────────
         // الأرشيف هو snapshot مالي مقفول — لا نحذف ولا ننقل
         // فقط نضيف transferNote على مدفوعاته للتوضيح
         if (updateArchive && db.dailyTreasuryArchives) {
@@ -145,18 +162,11 @@ async function transferStudent(studentId, newGroupId, options = {}) {
             }
         }
 
-        // ── 6. حفظ prevGroupId في absenceSessions ────────────────
-        // absenceSessions مش بنغيّر groupId فيها (هي archive تاريخي)
-        // لكن نضيف prevGroupId للـ student record بحيث
-        // renderMonthlyReportBody يقدر يلاقي جلساتها بالـ groupId القديم
-        // (هذا الحفظ اتعمل بالفعل في student.previousGroupId خطوة 3)
-        // لا يوجد تعديل إضافي مطلوب هنا
-
-        // ── 6. payments / scores / platformSubscriptions ─────────
+        // ── 8. payments / scores / platformSubscriptions ─────────
         // هذه الجداول مرتبطة بـ studentId فقط — لا تحتاج تعديل
         // الطالب سيظهر في جميع تقاريرها تلقائياً عبر studentId الثابت
 
-        // ── 7. تسجيل في Activity Log ─────────────────────────────
+        // ── 9. تسجيل في Activity Log ─────────────────────────────
         if (typeof RBAC !== 'undefined' && RBAC.log) {
             RBAC.log(
                 'transfer_student',
@@ -164,7 +174,7 @@ async function transferStudent(studentId, newGroupId, options = {}) {
             );
         }
 
-        // ── 8. تحديث الـ UI فوراً ────────────────────────────────
+        // ── 10. تحديث الـ UI فوراً ───────────────────────────────
         if (typeof renderStudents       === 'function') renderStudents();
         if (typeof renderGroups         === 'function') renderGroups();
         if (typeof renderGroupStudents  === 'function') renderGroupStudents();
@@ -174,7 +184,7 @@ async function transferStudent(studentId, newGroupId, options = {}) {
             updateGroupDetailStats(activeGroupDetailId);
         }
 
-        // ── 9. إشعار النجاح ─────────────────────────────────────
+        // ── 11. إشعار النجاح ─────────────────────────────────────
         showNotification(
             `✅ تم نقل "${student.name}" من [${oldGroupName}] إلى [${newGroupName}]\n🔑 الكود: ${student.qrCode} (ثابت)`,
             'success'
@@ -185,7 +195,8 @@ async function transferStudent(studentId, newGroupId, options = {}) {
             qrCode: student.qrCode,
             from: oldGroupName,
             to: newGroupName,
-            attendanceUpdated: attendanceToUpdate.length,
+            historyLength: previousHistory.length,
+            note: '⚠️ attendance NOT modified — stays linked to original groups'
         });
 
         return { success: true, message: 'transferred', student, oldGroupId, newGroupId: String(newGroupId) };
@@ -200,7 +211,6 @@ async function transferStudent(studentId, newGroupId, options = {}) {
 // ============================================================
 //  showTransferStudentModal
 //  يفتح نافذة اختيار المجموعة الجديدة للطالب المحدد
-//  يُستدعى من زر "نقل" الموجود في جدول الطلاب
 // ============================================================
 function showTransferStudentModal(studentId) {
     const student = db.students.find(s => String(s.id) === String(studentId));
@@ -242,6 +252,16 @@ function showTransferStudentModal(studentId) {
     const attCount   = db.attendance.filter(a => String(a.studentId) === String(studentId)).length;
     const payCount   = db.payments.filter(p => String(p.studentId) === String(studentId)).length;
     const scoreCount = db.scores.filter(sc => String(sc.studentId) === String(studentId)).length;
+
+    // عرض تاريخ التنقلات السابقة إن وجد
+    const historyHtml = (student.transferHistory && student.transferHistory.length > 0)
+        ? `<div style="margin-bottom:1rem;padding:0.8rem 1rem;background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;font-size:0.8rem;color:#075985;">
+            <div style="font-weight:800;margin-bottom:0.4rem;"><i class="fas fa-history" style="margin-left:5px;"></i>سجل التنقلات السابقة:</div>
+            ${student.transferHistory.map(h =>
+                `<div style="margin-top:3px;">📌 ${h.fromGroupName} → ${h.toGroupName} (${new Date(h.transferDate).toLocaleDateString('ar-EG')})</div>`
+            ).join('')}
+          </div>`
+        : '';
 
     const modal = document.createElement('div');
     modal.id = 'transfer-student-modal';
@@ -288,7 +308,7 @@ function showTransferStudentModal(studentId) {
                 border:1.5px solid rgba(79,70,229,0.15);
                 border-radius:14px;
                 padding:1.2rem;
-                margin-bottom:1.5rem;
+                margin-bottom:1.2rem;
             ">
                 <div style="display:flex;align-items:center;gap:12px;margin-bottom:0.8rem;">
                     <div style="
@@ -319,8 +339,11 @@ function showTransferStudentModal(studentId) {
                 </div>
             </div>
 
+            <!-- تاريخ التنقلات السابقة -->
+            ${historyHtml}
+
             <!-- اختيار المجموعة -->
-            <div style="margin-bottom:1.5rem;">
+            <div style="margin-bottom:1.2rem;">
                 <label style="display:block;font-weight:700;margin-bottom:8px;color:var(--text-main,#1e293b);">
                     <i class="fas fa-layer-group" style="color:var(--accent,#f59e0b);margin-left:6px;"></i>
                     اختر المجموعة الجديدة:
@@ -340,13 +363,13 @@ function showTransferStudentModal(studentId) {
 
             <!-- ملاحظة -->
             <div style="
-                background:#fffbeb;border:1px solid #fde68a;
+                background:#f0fdf4;border:1px solid #bbf7d0;
                 border-radius:10px;padding:0.75rem 1rem;
-                font-size:0.82rem;color:#92400e;
+                font-size:0.82rem;color:#166534;
                 margin-bottom:1.5rem;line-height:1.6;
             ">
-                <i class="fas fa-info-circle" style="margin-left:5px;"></i>
-                الكود لن يتغير. سجلات الحضور ستنتقل مع الطالب. المدفوعات والدرجات تبقى محفوظة تلقائياً.
+                <i class="fas fa-check-circle" style="margin-left:5px;"></i>
+                الكود لن يتغير. سجلات الحضور والمدفوعات والدرجات تبقى محفوظة. الطالب سيظهر فوراً في المجموعة الجديدة.
             </div>
 
             <!-- أزرار -->
@@ -402,15 +425,12 @@ function showTransferStudentModal(studentId) {
 
 /**
  * يُنفّذ النقل بعد اختيار المجموعة من الـ modal
- * @param {number|string} studentId
  */
 async function _confirmTransferFromModal(studentId) {
     const select = document.getElementById('transfer-group-select');
     if (!select || !select.value) {
-        // تأثير اهتزاز على الـ select لتنبيه المستخدم
         if (select) {
             select.style.borderColor = 'var(--danger,#ef4444)';
-            select.style.animation = 'none';
             setTimeout(() => { select.style.borderColor = ''; }, 1500);
         }
         showNotification('⚠️ يرجى اختيار المجموعة الجديدة أولاً', 'warning');
@@ -428,10 +448,69 @@ async function _confirmTransferFromModal(studentId) {
 }
 
 // ============================================================
-//  تصدير عالمي — يجب أن تكون كل الدوال في window
+//  showTransferLog — عرض سجل جميع عمليات النقل
+// ============================================================
+function showTransferLog(filterStudentId = null) {
+    const transfers = (db.studentTransfers || [])
+        .filter(t => !filterStudentId || String(t.studentId) === String(filterStudentId))
+        .sort((a, b) => new Date(b.transferDate) - new Date(a.transferDate));
+
+    const existingModal = document.getElementById('transfer-log-modal');
+    if (existingModal) existingModal.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'transfer-log-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);backdrop-filter:blur(3px);';
+
+    const rowsHtml = transfers.length === 0
+        ? `<tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-muted);">لا توجد عمليات نقل مسجلة</td></tr>`
+        : transfers.map(t => `
+            <tr>
+                <td style="padding:0.7rem 1rem;border-bottom:1px solid var(--bg-light,#f1f5f9);font-weight:700;">${t.studentName}</td>
+                <td style="padding:0.7rem 1rem;border-bottom:1px solid var(--bg-light,#f1f5f9);color:#dc2626;">${t.fromGroupName}</td>
+                <td style="padding:0.7rem 1rem;border-bottom:1px solid var(--bg-light,#f1f5f9);color:#16a34a;">${t.toGroupName}</td>
+                <td style="padding:0.7rem 1rem;border-bottom:1px solid var(--bg-light,#f1f5f9);font-size:0.85rem;">${t.transferDateStr || new Date(t.transferDate).toLocaleDateString('ar-EG')}</td>
+                <td style="padding:0.7rem 1rem;border-bottom:1px solid var(--bg-light,#f1f5f9);font-size:0.8rem;color:var(--text-muted);">${t.performedBy || '—'}</td>
+            </tr>
+        `).join('');
+
+    modal.innerHTML = `
+        <div style="background:var(--bg-white,#fff);border-radius:20px;padding:2rem;max-width:700px;width:95%;max-height:85vh;overflow-y:auto;direction:rtl;box-shadow:0 25px 60px rgba(0,0,0,0.3);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+                <h2 style="margin:0;color:var(--primary,#4f46e5);font-size:1.15rem;font-weight:800;">
+                    <i class="fas fa-history" style="margin-left:8px;"></i>
+                    سجل عمليات نقل الطلاب (${transfers.length})
+                </h2>
+                <button onclick="document.getElementById('transfer-log-modal').remove()"
+                    style="background:var(--bg-light,#f1f5f9);border:none;border-radius:50%;width:36px;height:36px;cursor:pointer;font-size:1.1rem;color:var(--text-muted);">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:0.88rem;">
+                <thead>
+                    <tr style="background:var(--bg-light,#f8fafc);">
+                        <th style="padding:0.7rem 1rem;text-align:right;font-weight:800;">الطالب</th>
+                        <th style="padding:0.7rem 1rem;text-align:right;font-weight:800;">من مجموعة</th>
+                        <th style="padding:0.7rem 1rem;text-align:right;font-weight:800;">إلى مجموعة</th>
+                        <th style="padding:0.7rem 1rem;text-align:right;font-weight:800;">تاريخ النقل</th>
+                        <th style="padding:0.7rem 1rem;text-align:right;font-weight:800;">بواسطة</th>
+                    </tr>
+                </thead>
+                <tbody>${rowsHtml}</tbody>
+            </table>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+// ============================================================
+//  تصدير عالمي
 // ============================================================
 window.transferStudent           = transferStudent;
 window.showTransferStudentModal  = showTransferStudentModal;
 window._confirmTransferFromModal = _confirmTransferFromModal;
+window.showTransferLog           = showTransferLog;
 
-console.log('[transfer-student.js] ✅ تم تحميل نظام النقل بين المجموعات');
+console.log('[transfer-student.js] ✅ v3.0 — نظام النقل الصحيح محمّل');
