@@ -1,0 +1,170 @@
+/* ═══════════════════════════════════════════════════════════════════
+   loading-screen.css — منصة الدكتور إسلام عبد الواحد
+   Full-screen Cinematic Biology Loading Screen (Phase 1 — v2)
+   ───────────────────────────────────────────────────────────────────
+   The generated cell video/image is the full-bleed hero visual of the
+   entire screen — not a small circular avatar. Self-contained; reuses
+   nothing that could collide with the rest of the site's CSS ("cl-"
+   namespace only).
+   ═══════════════════════════════════════════════════════════════════ */
+
+.cl-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 999999;
+  overflow: hidden;
+  background: #04121c;
+  transition: opacity 0.9s cubic-bezier(.4,0,.2,1), visibility 0.9s;
+}
+.cl-loader.cl-hide {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ── Full-bleed hero media (image now, video once available) ─────── */
+.cl-media-full {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #04121c url('data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA4KCw0LCQ4NDA0QDw4RFiQXFhQUFiwgIRokNC43NjMuMjI6QVNGOj1OPjIySGJJTlZYXV5dOEVmbWVabFNbXVn/2wBDAQ8QEBYTFioXFypZOzI7WVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVn/wAARCAAQABADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwCnvEiVm3NsGJqOC6JHWnyXFdMYtMupUTR//9k=') center/cover no-repeat;
+  opacity: 0;
+  transform: scale(1.045);
+  transition: opacity 1.5s cubic-bezier(.4,0,.2,1), transform 2s cubic-bezier(.16,1,.3,1);
+}
+.cl-loader.cl-stage-cell .cl-media-full { opacity: 1; transform: scale(1); }
+
+.cl-img,
+.cl-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center center;
+}
+.cl-img {
+  animation: clKenBurnsFull 17s ease-in-out infinite alternate;
+}
+.cl-video {
+  opacity: 0;
+  transition: opacity 1.1s ease;
+}
+.cl-media-full.cl-has-video .cl-video { opacity: 1; }
+.cl-media-full.cl-has-video .cl-img { opacity: 0; transition: opacity 1.1s ease; }
+
+@keyframes clKenBurnsFull {
+  from { transform: scale(1.01) translate(0, 0); }
+  to   { transform: scale(1.09) translate(-1%, -0.8%); }
+}
+
+/* ── Cinematic scrim: keeps text legible without hiding the cell ──── */
+.cl-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to bottom,
+      rgba(2,9,16,0.62) 0%,
+      rgba(2,9,16,0.18) 24%,
+      rgba(2,9,16,0.06) 48%,
+      rgba(2,9,16,0.22) 76%,
+      rgba(2,9,16,0.64) 100%);
+  pointer-events: none;
+}
+
+/* ── Content layer: brand up top, progress pinned to the bottom ──── */
+.cl-content {
+  position: relative;
+  z-index: 2;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: clamp(30px, 6vh, 68px) clamp(20px, 6vw, 56px);
+  text-align: center;
+  pointer-events: none;
+  transition: opacity 0.55s ease;
+}
+.cl-loader.cl-exit-text .cl-content { opacity: 0; }
+
+.cl-brand {
+  max-width: min(680px, 90vw);
+  opacity: 0;
+  transform: translateY(-14px);
+  transition: opacity 1.1s ease, transform 1.1s ease;
+}
+.cl-loader.cl-stage-brand .cl-brand { opacity: 1; transform: translateY(0); }
+
+.cl-brand-ar {
+  margin: 0;
+  font-family: 'Tajawal', 'Inter', sans-serif;
+  font-size: clamp(1.25rem, 3.6vw, 2.15rem);
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: 0.01em;
+  text-shadow: 0 2px 20px rgba(0,0,0,0.55), 0 1px 4px rgba(0,0,0,0.5);
+}
+.cl-brand-sub {
+  margin: 8px 0 0;
+  font-family: 'Tajawal', 'Inter', sans-serif;
+  font-size: clamp(0.76rem, 1.7vw, 0.98rem);
+  font-weight: 600;
+  color: rgba(255,255,255,0.85);
+  letter-spacing: 0.03em;
+  text-shadow: 0 1px 10px rgba(0,0,0,0.5);
+}
+
+.cl-progress {
+  width: min(240px, 66vw);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.9s ease, transform 0.9s ease;
+}
+.cl-loader.cl-stage-progress .cl-progress { opacity: 1; transform: translateY(0); }
+
+.cl-track {
+  width: 100%;
+  height: 3px;
+  border-radius: 99px;
+  background: rgba(255,255,255,0.22);
+  overflow: hidden;
+}
+.cl-fill {
+  height: 100%;
+  width: 6%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #22D3EE, #34D399);
+  box-shadow: 0 0 10px rgba(34,211,238,0.7);
+  transition: width 0.6s cubic-bezier(.4,0,.2,1);
+}
+.cl-msg {
+  margin: 10px 0 0;
+  font-family: 'Tajawal', 'Inter', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: rgba(255,255,255,0.85);
+  text-shadow: 0 1px 8px rgba(0,0,0,0.5);
+  min-height: 1.1em;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.cl-msg.cl-msg-in { opacity: 1; transform: translateY(0); }
+
+/* ── Responsive ───────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .cl-brand-ar { font-size: 1.2rem; }
+  .cl-brand-sub { font-size: 0.72rem; }
+  .cl-progress { width: 200px; }
+}
+
+/* ── Reduced motion ───────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .cl-img, .cl-video, .cl-media-full { animation: none !important; }
+  .cl-loader, .cl-media-full, .cl-content, .cl-brand, .cl-progress,
+  .cl-fill, .cl-msg, .cl-img, .cl-video {
+    transition-duration: 0.3s !important;
+  }
+  .cl-media-full { transform: none !important; }
+}

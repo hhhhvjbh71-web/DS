@@ -1,206 +1,190 @@
-// ============================================================
-//  sw.js  —  Service Worker مع نظام التحديث التلقائي
+// ═══════════════════════════════════════════════════════════════════════
+//  sw.js — Service Worker لتطبيق الـ PWA
+//  منصة الخلية — أ/ إسلام عبدالواحد لتعليم الأحياء
 //
-//  آلية التحديث:
-//    1. عند كل فتح للتطبيق يتحقق المتصفح من sw.js تلقائياً
-//    2. إذا تغيّر CACHE_VERSION → يبدأ install جديد في الخلفية
-//    3. بعد اكتمال التحميل، يرسل SW رسالة UPDATE_READY للتطبيق
-//    4. التطبيق يُظهر للمستخدم إشعار "تحديث جاهز" → يضغط → يُطبَّق
-//    5. أو: يُطبَّق تلقائياً بعد 10 ثوانٍ بدون تدخّل
-// ============================================================
+//  فكرة التصميم (مهم تقرأها قبل التعديل):
+//  ────────────────────────────────────────────────────────────────────
+//  المنصة عندها بالفعل نظام تحديث خاص بيها (cache-buster.js) بيراقب
+//  version.json وبيعمل Hard Reload لما يلاقي نسخة جديدة. الهدف من هذا
+//  الملف إنه "يضيف" فوق النظام ده تجربة PWA حقيقية (تثبيت + Offline
+//  بسيط) من غير ما "يزاحمه" أو يسبب ظهور نسخة قديمة:
+//
+//  • version.json: ابداً ما يتم Cache-ه ولا اعتراضه — بيعدي للنتورك زي
+//    ما هو عشان cache-buster.js يفضل شغال 100% زي ما هو مصمم.
+//  • صفحات HTML وملفات JS/CSS بتاعة نفس الموقع: استراتيجية
+//    "Network First" — يعني أول حاجة يحاول يجيبها من السيرفر، ولو
+//    الشبكة اتأخرت/فشلت يرجع للـ Cache كحل احتياطي بس (مش أساسي).
+//    ده معناه إن أي تحديث يترفع على الاستضافة يوصل فورًا لأي مستخدم
+//    عنده إنترنت، والـ Cache بيتفعل بس في حالة الأوفلاين.
+//  • الصور/الخطوط ومكتبات الـ CDN الثابتة (Firebase SDK, pdf.js,
+//    Google Fonts): استراتيجية "Cache First" لأنها ثقيلة ونادرًا
+//    ما تتغير (ومعظمها مثبّت برقم إصدار في الرابط نفسه).
+//  • أي طلب مش GET (زي طلبات Firebase/Firestore/Auth) بيتجاهله الـ
+//    Service Worker تمامًا ومايتدخلش فيه إطلاقًا.
+//
+//  رقم الإصدار (APP_VERSION) بيتحدّث تلقائيًا مع كل نشر عبر
+//  update-version.sh / update-version.ps1 (نفس الملفين اللي بيحدّثوا
+//  version.json و ?v= في index.html) — وده اللي بيخلي المتصفح يكتشف
+//  إن فيه Service Worker جديد فور ما يترفع تحديث (لأن محتوى الملف نفسه
+//  بيتغيّر، مش بس اسم الكاش).
+// ═══════════════════════════════════════════════════════════════════════
 
-const CACHE_VERSION = 'elmohandes-math-pwa-v2';
+'use strict';
 
-const APP_SHELL = [
-  './',
-  './index.html',
-  './style.css',
-  './app.js',
-  './ai-exam-builder.js',
-  './archive_functions.js',
-  './platform-subscriptions.js',
-  './transfer-student.js',
-  './receive-exams.js',
-  './code-generator.js',
-  './grade-mapping.js',
-  './manifest.webmanifest',
-  './firebase-config.js',
-  './app-icon-192.png',
-  './app-icon-512.png',
-  './app-icon-maskable-512.png',
-  './apple-touch-icon.png'
+// ⚠️ هذا السطر يتحدّث تلقائيًا مع كل تشغيل لسكربت update-version.*
+const APP_VERSION = '20260923-1238';
+
+const STATIC_CACHE  = 'manassa-static-'  + APP_VERSION;
+const RUNTIME_CACHE = 'manassa-runtime-' + APP_VERSION;
+const CURRENT_CACHES = [STATIC_CACHE, RUNTIME_CACHE];
+
+// أصول أساسية بس (خفيفة) بتتحمّل وقت التثبيت — عمدًا مفيش هنا أي
+// صفحة HTML أو app.js/style.css عشان النظام يفضل معتمد على الشبكة
+// أولاً لكل حاجة ديناميكية.
+const PRECACHE_URLS = [
+  'manifest.json',
+  'offline.html',
+  'icons/icon-192.png',
+  'icons/icon-512.png'
 ];
 
-// ─── Install: تحميل كل ملفات الـ App Shell في الـ Cache ───
-self.addEventListener('install', (event) => {
-  console.log(`[SW] Installing version: ${CACHE_VERSION}`);
+// امتدادات بيتم التعامل معها كـ "أصول ثابتة" (Cache First)
+const STATIC_ASSET_REGEX = /\.(?:png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|eot)$/i;
+
+// نطاقات CDN يوثق فيها (مكتبات مثبّتة برقم إصدار في الرابط)
+const TRUSTED_CDN_HOSTS = [
+  'fonts.googleapis.com',
+  'fonts.gstatic.com',
+  'www.gstatic.com',
+  'cdnjs.cloudflare.com'
+];
+
+self.addEventListener('install', function (event) {
   event.waitUntil(
-    caches.open(CACHE_VERSION)
-      .then((cache) => Promise.all(
-        APP_SHELL.map((url) =>
-          cache.add(url).catch((err) => {
-            console.warn('[SW] Failed to cache:', url, err);
-            return null;
-          })
-        )
-      ))
-      // skipWaiting: الـ SW الجديد يأخذ السيطرة فور اكتمال التحميل
-      // لكن لن يُعيد تحميل الصفحة بنفسه — نحن من نقرر متى
-      .then(() => {
-        console.log(`[SW] Install complete: ${CACHE_VERSION}`);
+    caches.open(STATIC_CACHE)
+      .then(function (cache) {
+        return cache.addAll(PRECACHE_URLS).catch(function (err) {
+          // لو ملف Precache فشل (مثلاً offline.html لسه مش موجود) منمنعش
+          // التثبيت بالكامل بسببه.
+          console.warn('[SW] Precache warning:', err);
+        });
+      })
+      .then(function () {
+        // فعّل الإصدار الجديد فورًا من غير انتظار إغلاق كل التابات
         return self.skipWaiting();
       })
   );
 });
 
-// ─── Activate: حذف الـ Cache القديم وأخذ السيطرة الكاملة ──
-self.addEventListener('activate', (event) => {
-  console.log(`[SW] Activating version: ${CACHE_VERSION}`);
+self.addEventListener('activate', function (event) {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(
-        keys
-          .filter((key) => key !== CACHE_VERSION)
-          .map((key) => {
-            console.log(`[SW] Deleting old cache: ${key}`);
-            return caches.delete(key);
-          })
-      ))
-      .then(() => self.clients.claim())
-      .then(async () => {
-        // ✅ أبلغ كل النوافذ المفتوحة بأن تحديثاً جديداً تم تفعيله
-        const clients = await self.clients.matchAll({
-          type: 'window',
-          includeUncontrolled: true
-        });
-        clients.forEach((client) => {
-          client.postMessage({
-            type: 'SW_UPDATED',
-            version: CACHE_VERSION
-          });
-        });
-        console.log(`[SW] Activated & notified ${clients.length} clients`);
+      .then(function (names) {
+        return Promise.all(
+          names
+            .filter(function (name) { return !CURRENT_CACHES.includes(name); })
+            .map(function (name) { return caches.delete(name); })
+        );
+      })
+      .then(function () {
+        // خلي الـ Service Worker الجديد يتحكم في كل الصفحات المفتوحة فورًا
+        return self.clients.claim();
       })
   );
 });
 
-// ─── Fetch: Cache-First للـ Shell، Network-First للباقي ───
-async function cacheFirst(request) {
-  const cache = await caches.open(CACHE_VERSION);
-  const cached = await cache.match(request);
-  if (cached) return cached;
-  try {
-    const fresh = await fetch(request, { cache: 'no-store' });
-    if (fresh && fresh.ok) await cache.put(request, fresh.clone());
-    return fresh;
-  } catch (error) {
-    if (request.mode === 'navigate') return cache.match('./index.html');
-    throw error;
+// دعم استدعاء يدوي لـ skipWaiting من الصفحة لو احتجنا مستقبلاً
+self.addEventListener('message', function (event) {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
   }
+});
+
+function isTrustedCdn(url) {
+  return TRUSTED_CDN_HOSTS.indexOf(url.hostname) !== -1;
 }
 
-async function networkFirst(request) {
-  const cache = await caches.open(CACHE_VERSION);
-  try {
-    const fresh = await fetch(request, { cache: 'no-store' });
-    if (fresh && fresh.ok) await cache.put(request, fresh.clone());
-    return fresh;
-  } catch (error) {
-    const cached = await cache.match(request);
-    if (cached) return cached;
-    if (request.mode === 'navigate') return cache.match('./index.html');
-    throw error;
-  }
+// Network First: يحاول الشبكة أولاً، ولو فشلت يرجع للـ Cache
+function networkFirst(request) {
+  return fetch(request)
+    .then(function (response) {
+      if (response && response.ok) {
+        var copy = response.clone();
+        caches.open(RUNTIME_CACHE).then(function (cache) {
+          cache.put(request, copy).catch(function () {});
+        });
+      }
+      return response;
+    })
+    .catch(function () {
+      return caches.match(request).then(function (cached) {
+        if (cached) return cached;
+        if (request.mode === 'navigate') {
+          return caches.match('offline.html');
+        }
+        return Promise.reject('no-match');
+      });
+    });
 }
 
-self.addEventListener('fetch', (event) => {
-  const request = event.request;
+// Cache First + تحديث في الخلفية (Stale-While-Revalidate)
+function cacheFirst(request) {
+  return caches.match(request).then(function (cached) {
+    var networkFetch = fetch(request).then(function (response) {
+      if (response && response.ok) {
+        var copy = response.clone();
+        caches.open(RUNTIME_CACHE).then(function (cache) {
+          cache.put(request, copy).catch(function () {});
+        });
+      }
+      return response;
+    }).catch(function () { return cached; });
+
+    return cached || networkFetch;
+  });
+}
+
+self.addEventListener('fetch', function (event) {
+  var request = event.request;
+
+  // متعملش أي تدخل غير طلبات GET (طلبات Firebase/Firestore/Auth
+  // بتستخدم POST/PUT كتير — سيبها تعدي زي ما هي)
   if (request.method !== 'GET') return;
 
-  const url = new URL(request.url);
+  // حماية من خطأ معروف في Chrome مع طلبات only-if-cached الخاصة بالـ prefetch
+  if (request.cache === 'only-if-cached' && request.mode !== 'same-origin') return;
 
-  // الموارد الخارجية → Network-First مع Cache fallback
-  if (url.origin !== self.location.origin) {
+  var url = new URL(request.url);
+
+  // طلبات فيها Range (فيديو/PDF) — سيبها للمتصفح مباشرة عشان الـ seek
+  if (request.headers.has('range')) return;
+
+  // version.json: ممنوع نتدخل فيه إطلاقًا — نظام cache-buster.js
+  // معتمد عليه يكون طازة 100% من السيرفر دايمًا.
+  if (url.pathname.endsWith('/version.json') || url.pathname === '/version.json' || url.pathname.endsWith('version.json')) {
+    return;
+  }
+
+  var isSameOrigin = url.origin === self.location.origin;
+
+  // ملفات ثابتة (صور/خطوط) من نفس الموقع أو من CDN موثوق → Cache First
+  if (STATIC_ASSET_REGEX.test(url.pathname) && (isSameOrigin || isTrustedCdn(url))) {
+    event.respondWith(cacheFirst(request));
+    return;
+  }
+
+  // مكتبات JS الخاصة بـ Firebase / pdf.js من CDN موثوق → Cache First
+  if (isTrustedCdn(url)) {
+    event.respondWith(cacheFirst(request));
+    return;
+  }
+
+  // أي حاجة تانية من نفس الموقع (HTML, JS, CSS, JSON عدا version.json)
+  // → Network First عشان أي تحديث يوصل فورًا
+  if (isSameOrigin) {
     event.respondWith(networkFirst(request));
     return;
   }
 
-  // ملفات App Shell المحلية → Cache-First (يعمل فوراً offline)
-  const isShellFile = APP_SHELL.some((shellUrl) => {
-    const normalized = shellUrl.replace('./', '/');
-    return (
-      url.pathname === normalized ||
-      url.pathname === shellUrl ||
-      url.pathname.endsWith(shellUrl.replace('./', ''))
-    );
-  });
-
-  if (isShellFile || url.pathname === '/' || url.pathname === '/index.html') {
-    event.respondWith(cacheFirst(request));
-  } else {
-    event.respondWith(networkFirst(request));
-  }
+  // أي طلب تاني (مثل Firebase APIs) → سيبه يعدي عادي من غير تدخل
 });
-
-// ─── Messages من التطبيق ────────────────────────────────────
-self.addEventListener('message', (event) => {
-  if (!event.data) return;
-
-  // طلب تطبيق SW الجديد فوراً (من زر التحديث في الـ UI)
-  if (event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
-
-  // تنظيف كامل للـ Cache + تطبيق التحديث (Hard Refresh)
-  if (event.data.type === 'FORCE_CLEAR_CACHE') {
-    event.waitUntil(
-      caches.keys()
-        .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
-        .then(() => self.skipWaiting())
-    );
-  }
-
-  // تسجيل Periodic Background Sync للخزنة
-  if (event.data.type === 'REGISTER_TREASURY_SYNC') {
-    registerPeriodicSync();
-  }
-
-  if (event.data.type === 'TREASURY_ARCHIVE_DONE') {
-    self._lastArchiveDate = event.data.date;
-  }
-});
-
-// ─── Periodic Background Sync ──────────────────────────────
-self.addEventListener('periodicsync', (event) => {
-  if (event.tag === 'treasury-daily-archive') {
-    event.waitUntil(notifyClientsToArchive());
-  }
-});
-
-async function registerPeriodicSync() {
-  try {
-    const registration = self.registration;
-    if (registration && registration.periodicSync) {
-      await registration.periodicSync.register('treasury-daily-archive', {
-        minInterval: 12 * 60 * 60 * 1000
-      });
-    }
-  } catch (e) {
-    console.log('[SW] periodicSync not supported');
-  }
-}
-
-async function notifyClientsToArchive() {
-  const clients = await self.clients.matchAll({
-    type: 'window',
-    includeUncontrolled: true
-  });
-  const todayStr = new Date().toLocaleDateString('en-CA');
-  if (clients.length > 0) {
-    clients.forEach((client) => {
-      client.postMessage({ type: 'RUN_TREASURY_ARCHIVE', date: todayStr });
-    });
-  } else {
-    self._pendingArchive = todayStr;
-  }
-}

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
+
+  <!-- الصفحة الرئيسية — منصة الخلية — أ/ إسلام عبدالواحد التعليمية -->
+  <url>
+    <loc>https://mahmoud-abdeldaem-manassa.web.app/</loc>
+    <lastmod>2026-08-17</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://mahmoud-abdeldaem-manassa.web.app/"/>
+  </url>
+
+  <!-- صفحة index.html الصريحة -->
+  <url>
+    <loc>https://mahmoud-abdeldaem-manassa.web.app/index.html</loc>
+    <lastmod>2026-08-17</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+</urlset>
