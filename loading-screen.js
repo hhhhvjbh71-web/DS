@@ -4,7 +4,7 @@
    ───────────────────────────────────────────────────────────────────
    - Plays a staged entrance (dark → hero media emerges → name → progress)
    - Upgrades the full-screen fallback image to the generated cell video
-     the moment assets/loading/cell-video.(webm|mp4) exists. Until then
+     the moment ./cell-video.(webm|mp4) exists. Until then
      this is a safe no-op and the Ken-Burns image stays as the hero.
    - Hides itself once the platform is ready: fades the name/progress
      out first, then the video, then removes the loader — never a hard
@@ -65,7 +65,7 @@
   setTimeout(function () { step(true); }, 5200);
 
   /* ── Video upgrade: full-screen hero, not a small clip ───────────
-     Looks for assets/loading/cell-video.webm / .mp4. If neither
+     Looks for ./cell-video.webm / .mp4. If neither
      exists yet (default state today), this is a silent no-op and the
      Ken-Burns full-screen image stays as the hero — the platform is
      never blocked or slowed down by a missing file. ───────────────── */
@@ -103,10 +103,10 @@
     video.addEventListener('error', function () { settle(false); });
 
     var srcWebm = document.createElement('source');
-    srcWebm.src = 'assets/loading/cell-video.webm';
+    srcWebm.src = './cell-video.webm';
     srcWebm.type = 'video/webm';
     var srcMp4 = document.createElement('source');
-    srcMp4.src = 'assets/loading/cell-video.mp4';
+    srcMp4.src = './cell-video.mp4';
     srcMp4.type = 'video/mp4';
     video.appendChild(srcWebm);
     video.appendChild(srcMp4);

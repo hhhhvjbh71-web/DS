@@ -44,8 +44,8 @@ const CURRENT_CACHES = [STATIC_CACHE, RUNTIME_CACHE];
 const PRECACHE_URLS = [
   'manifest.json',
   'offline.html',
-  'icons/icon-192.png',
-  'icons/icon-512.png'
+  './icon-192.png',
+  './icon-512.png'
 ];
 
 // امتدادات بيتم التعامل معها كـ "أصول ثابتة" (Cache First)

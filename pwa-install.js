@@ -72,7 +72,7 @@
         overlay.setAttribute('dir', 'rtl');
         overlay.setAttribute('lang', 'ar');
 
-        var iconSrc = 'icons/icon-192.png';
+        var iconSrc = './icon-192.png';
         var stepsHtml = '';
         var actionHtml = '';
 

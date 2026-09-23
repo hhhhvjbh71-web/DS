@@ -77,9 +77,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Mr. Abdelwahed">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
-  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16.png">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
   <link rel="stylesheet" href="pwa-install.css?v=20260923-1238">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -104,7 +104,7 @@
          Markup/logic: see loader block in <body> · Styles/JS are in
          the external loading-screen.css / loading-screen.js files.
          ═══════════════════════════════════════════════════════════ -->
-  <link rel="preload" as="image" href="assets/loading/cell-hero.webp" type="image/webp" fetchpriority="high">
+  <link rel="preload" as="image" href="./cell-hero.webp" type="image/webp" fetchpriority="high">
   <link rel="stylesheet" href="loading-screen.css?v=20260923-1238">
 </head>
 
@@ -114,15 +114,15 @@
 
   <!-- ═══════════════════════════════════════════════════════════
          Full-screen cinematic loading screen — the generated cell
-         video (once added at assets/loading/cell-video.mp4/.webm) is
+         video (once added at ./cell-video.mp4/.webm) is
          the main full-bleed hero visual of this entire screen.
          ═══════════════════════════════════════════════════════════ -->
   <div id="cellLoader" class="cl-loader" role="status" aria-label="Loading — منصة الدكتور إسلام عبد الواحد">
 
     <div class="cl-media-full" id="clMedia">
       <picture>
-        <source srcset="assets/loading/cell-hero.webp" type="image/webp">
-        <img class="cl-img" id="clImg" src="assets/loading/cell-hero.jpg" width="960" height="960"
+        <source srcset="./cell-hero.webp" type="image/webp">
+        <img class="cl-img" id="clImg" src="./cell-hero.jpg" width="960" height="960"
              alt="" decoding="async" fetchpriority="high">
       </picture>
     </div>
